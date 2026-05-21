@@ -8,9 +8,9 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
-# ---------------------------------------------------
-# PDF
-# ---------------------------------------------------
+# ===================================================
+# PDF LOADER
+# ===================================================
 
 def load_pdf(uploaded_file):
 
@@ -30,9 +30,9 @@ def load_pdf(uploaded_file):
     return text
 
 
-# ---------------------------------------------------
+# ===================================================
 # CHUNKING
-# ---------------------------------------------------
+# ===================================================
 
 def chunk_text(
     text,
@@ -46,7 +46,10 @@ def chunk_text(
 
     while start < len(text):
 
-        end = min(start + chunk_size, len(text))
+        end = min(
+            start + chunk_size,
+            len(text)
+        )
 
         chunk = text[start:end]
 
@@ -58,9 +61,9 @@ def chunk_text(
     return chunks
 
 
-# ---------------------------------------------------
+# ===================================================
 # EMBEDDINGS
-# ---------------------------------------------------
+# ===================================================
 
 def get_embeddings(texts):
 
@@ -78,9 +81,9 @@ def get_embeddings(texts):
     return vectors.tolist()
 
 
-# ---------------------------------------------------
-# QDRANT INIT
-# ---------------------------------------------------
+# ===================================================
+# INIT QDRANT
+# ===================================================
 
 def init_qdrant_collection(
     collection_name,
@@ -98,14 +101,20 @@ def init_qdrant_collection(
         api_key=QDRANT_API_KEY,
     )
 
-    existing = [
-        c.name
-        for c in qdrant.get_collections().collections
+    existing_collections = [
+        collection.name
+        for collection
+        in qdrant.get_collections().collections
     ]
 
-    if collection_name in existing:
-        qdrant.delete_collection(collection_name)
+    # Delete collection if already exists
+    if collection_name in existing_collections:
 
+        qdrant.delete_collection(
+            collection_name
+        )
+
+    # Create new collection
     qdrant.create_collection(
         collection_name=collection_name,
         vectors_config=VectorParams(
@@ -115,9 +124,9 @@ def init_qdrant_collection(
     )
 
 
-# ---------------------------------------------------
-# QDRANT UPLOAD
-# ---------------------------------------------------
+# ===================================================
+# UPLOAD TO QDRANT
+# ===================================================
 
 def upload_to_qdrant(
     collection_name,
@@ -139,15 +148,15 @@ def upload_to_qdrant(
         zip(chunks, embeddings)
     ):
 
-        points.append(
-            PointStruct(
-                id=i,
-                vector=embedding,
-                payload={
-                    "text": chunk
-                },
-            )
+        point = PointStruct(
+            id=i,
+            vector=embedding,
+            payload={
+                "text": chunk
+            },
         )
+
+        points.append(point)
 
     qdrant.upsert(
         collection_name=collection_name,
@@ -155,9 +164,9 @@ def upload_to_qdrant(
     )
 
 
-# ---------------------------------------------------
-# RETRIEVE
-# ---------------------------------------------------
+# ===================================================
+# RETRIEVE CHUNKS
+# ===================================================
 
 def retrieve_chunks(
     collection_name,
@@ -178,20 +187,20 @@ def retrieve_chunks(
         limit=top_k,
     ).points
 
-    chunks = []
+    retrieved_chunks = []
 
     for hit in results:
 
-        chunks.append(
+        retrieved_chunks.append(
             hit.payload["text"]
         )
 
-    return chunks
+    return retrieved_chunks
 
 
-# ---------------------------------------------------
-# GROQ
-# ---------------------------------------------------
+# ===================================================
+# ASK GROQ
+# ===================================================
 
 def ask_groq(
     question,
@@ -207,13 +216,20 @@ def ask_groq(
     context = "\n\n".join(context_chunks)
 
     response = groq_client.chat.completions.create(
-        model="llama3-8b-8192",
+
+        # UPDATED MODEL
+        model="llama-3.1-8b-instant",
+
         messages=[
+
             {
                 "role": "system",
                 "content":
-                "Answer ONLY using the provided context."
+                "Answer ONLY from the provided context. "
+                "If answer is not available, say "
+                "'Answer not found in document.'"
             },
+
             {
                 "role": "user",
                 "content":
@@ -228,6 +244,7 @@ Answer:
 """
             },
         ],
+
         temperature=0.2,
         max_tokens=1024,
     )
