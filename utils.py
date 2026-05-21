@@ -1,10 +1,11 @@
-import os
-from dotenv import load_dotenv
+import streamlit as st
+import numpy as np
 
-load_dotenv()
+# ===================================================
+# GROQ API KEY
+# ===================================================
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 
 # ===================================================
 # LOAD PDF
@@ -60,7 +61,7 @@ def chunk_text(
 
 
 # ===================================================
-# EMBEDDINGS
+# LOAD EMBEDDING MODEL
 # ===================================================
 
 def get_embedding_model():
@@ -77,7 +78,7 @@ def get_embedding_model():
 
 
 # ===================================================
-# CREATE VECTORSTORE
+# CREATE VECTOR STORE
 # ===================================================
 
 def create_vectorstore(
@@ -86,9 +87,10 @@ def create_vectorstore(
 ):
 
     import faiss
-    import numpy as np
 
-    embeddings = model.encode(chunks)
+    embeddings = model.encode(
+        chunks
+    )
 
     embeddings = np.array(
         embeddings
@@ -96,11 +98,13 @@ def create_vectorstore(
 
     dimension = embeddings.shape[1]
 
-    index = faiss.IndexFlatL2(dimension)
+    index = faiss.IndexFlatL2(
+        dimension
+    )
 
     index.add(embeddings)
 
-    return index, embeddings
+    return index
 
 
 # ===================================================
@@ -114,8 +118,6 @@ def retrieve_chunks(
     index,
     top_k=4,
 ):
-
-    import numpy as np
 
     question_embedding = model.encode(
         [question]
@@ -162,14 +164,16 @@ def ask_groq(
 
     response = client.chat.completions.create(
 
-        model="llama3-8b-8192",
+        model="llama-3.3-70b-versatile",
 
         messages=[
 
             {
                 "role": "system",
                 "content":
-                "Answer ONLY using provided context."
+                "Answer ONLY using the provided context. "
+                "If answer is not available in the context, "
+                "say 'Answer not found in document.'"
             },
 
             {

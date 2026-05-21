@@ -10,17 +10,22 @@ from utils import (
 )
 
 # ===================================================
-# PAGE
+# PAGE CONFIG
 # ===================================================
 
 st.set_page_config(
-    page_title="RAG Chatbot"
+    page_title="RAG Chatbot",
+    layout="centered",
 )
+
+# ===================================================
+# TITLE
+# ===================================================
 
 st.title("RAG CHATBOT")
 
 st.write(
-    "Upload PDF and ask questions"
+    "Upload a PDF and ask questions"
 )
 
 # ===================================================
@@ -40,19 +45,25 @@ if uploaded_file:
 
     try:
 
-        # -------------------------
+        # -----------------------------------
         # LOAD PDF
-        # -------------------------
+        # -----------------------------------
 
-        text = load_pdf(
-            uploaded_file
+        with st.spinner(
+            "Reading PDF..."
+        ):
+
+            text = load_pdf(
+                uploaded_file
+            )
+
+        st.success(
+            "PDF LOADED"
         )
 
-        st.success("PDF LOADED")
-
-        # -------------------------
-        # CHUNKS
-        # -------------------------
+        # -----------------------------------
+        # CHUNKING
+        # -----------------------------------
 
         chunks = chunk_text(text)
 
@@ -60,12 +71,12 @@ if uploaded_file:
             f"{len(chunks)} CHUNKS CREATED"
         )
 
-        # -------------------------
-        # MODEL
-        # -------------------------
+        # -----------------------------------
+        # LOAD MODEL
+        # -----------------------------------
 
         with st.spinner(
-            "LOADING MODEL..."
+            "Loading embedding model..."
         ):
 
             model = get_embedding_model()
@@ -74,54 +85,67 @@ if uploaded_file:
             "MODEL LOADED"
         )
 
-        # -------------------------
-        # VECTORSTORE
-        # -------------------------
+        # -----------------------------------
+        # VECTOR STORE
+        # -----------------------------------
 
         with st.spinner(
-            "CREATING VECTORSTORE..."
+            "Creating vector store..."
         ):
 
-            index, embeddings = (
-                create_vectorstore(
-                    chunks,
-                    model,
-                )
+            index = create_vectorstore(
+                chunks,
+                model,
             )
 
         st.success(
-            "VECTORSTORE CREATED"
+            "VECTOR STORE CREATED"
         )
 
         # ===================================================
-        # CHAT
+        # CHATBOT
         # ===================================================
 
         st.divider()
 
-        question = st.text_input(
-            "Ask Question"
+        st.subheader(
+            "CHAT WITH PDF"
         )
+
+        question = st.text_input(
+            "Ask a question from the PDF"
+        )
+
+        # -----------------------------------
+        # QUESTION
+        # -----------------------------------
 
         if question:
 
             with st.spinner(
-                "THINKING..."
+                "Thinking..."
             ):
 
+                # Retrieve relevant chunks
                 retrieved_chunks = (
                     retrieve_chunks(
                         question,
                         chunks,
                         model,
                         index,
+                        top_k=4,
                     )
                 )
 
+                # Ask Groq
                 answer = ask_groq(
                     question,
                     retrieved_chunks,
                 )
+
+            # -----------------------------------
+            # SHOW ANSWER
+            # -----------------------------------
 
             st.subheader(
                 "ANSWER"
@@ -129,11 +153,22 @@ if uploaded_file:
 
             st.write(answer)
 
+            # -----------------------------------
+            # SHOW CHUNKS
+            # -----------------------------------
+
             with st.expander(
                 "Retrieved Chunks"
             ):
 
-                for chunk in retrieved_chunks:
+                for i, chunk in enumerate(
+                    retrieved_chunks,
+                    start=1,
+                ):
+
+                    st.write(
+                        f"Chunk {i}"
+                    )
 
                     st.info(chunk)
 
