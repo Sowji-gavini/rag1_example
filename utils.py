@@ -3,13 +3,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-QDRANT_URL = os.getenv("QDRANT_URL")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
 # ===================================================
-# PDF LOADER
+# LOAD PDF
 # ===================================================
 
 def load_pdf(uploaded_file):
@@ -31,7 +29,7 @@ def load_pdf(uploaded_file):
 
 
 # ===================================================
-# CHUNKING
+# CHUNK TEXT
 # ===================================================
 
 def chunk_text(
@@ -65,103 +63,44 @@ def chunk_text(
 # EMBEDDINGS
 # ===================================================
 
-def get_embeddings(texts):
+def get_embedding_model():
 
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import (
+        SentenceTransformer
+    )
 
     model = SentenceTransformer(
         "sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    vectors = model.encode(
-        texts,
-        show_progress_bar=False,
-    )
-
-    return vectors.tolist()
+    return model
 
 
 # ===================================================
-# INIT QDRANT
+# CREATE VECTORSTORE
 # ===================================================
 
-def init_qdrant_collection(
-    collection_name,
-    vector_size=384,
-):
-
-    from qdrant_client import QdrantClient
-    from qdrant_client.models import (
-        Distance,
-        VectorParams,
-    )
-
-    qdrant = QdrantClient(
-        url=QDRANT_URL,
-        api_key=QDRANT_API_KEY,
-    )
-
-    existing_collections = [
-        collection.name
-        for collection
-        in qdrant.get_collections().collections
-    ]
-
-    # Delete collection if already exists
-    if collection_name in existing_collections:
-
-        qdrant.delete_collection(
-            collection_name
-        )
-
-    # Create new collection
-    qdrant.create_collection(
-        collection_name=collection_name,
-        vectors_config=VectorParams(
-            size=vector_size,
-            distance=Distance.COSINE,
-        ),
-    )
-
-
-# ===================================================
-# UPLOAD TO QDRANT
-# ===================================================
-
-def upload_to_qdrant(
-    collection_name,
+def create_vectorstore(
     chunks,
-    embeddings,
+    model,
 ):
 
-    from qdrant_client import QdrantClient
-    from qdrant_client.models import PointStruct
+    import faiss
+    import numpy as np
 
-    qdrant = QdrantClient(
-        url=QDRANT_URL,
-        api_key=QDRANT_API_KEY,
-    )
+    embeddings = model.encode(chunks)
 
-    points = []
+    embeddings = np.array(
+        embeddings
+    ).astype("float32")
 
-    for i, (chunk, embedding) in enumerate(
-        zip(chunks, embeddings)
-    ):
+    dimension = embeddings.shape[1]
 
-        point = PointStruct(
-            id=i,
-            vector=embedding,
-            payload={
-                "text": chunk
-            },
-        )
+    index = faiss.IndexFlatL2(dimension)
 
-        points.append(point)
+    index.add(embeddings)
 
-    qdrant.upsert(
-        collection_name=collection_name,
-        points=points,
-    )
+    return index, embeddings
 
 
 # ===================================================
@@ -169,30 +108,34 @@ def upload_to_qdrant(
 # ===================================================
 
 def retrieve_chunks(
-    collection_name,
-    question_embedding,
+    question,
+    chunks,
+    model,
+    index,
     top_k=4,
 ):
 
-    from qdrant_client import QdrantClient
+    import numpy as np
 
-    qdrant = QdrantClient(
-        url=QDRANT_URL,
-        api_key=QDRANT_API_KEY,
+    question_embedding = model.encode(
+        [question]
     )
 
-    results = qdrant.query_points(
-        collection_name=collection_name,
-        query=question_embedding,
-        limit=top_k,
-    ).points
+    question_embedding = np.array(
+        question_embedding
+    ).astype("float32")
+
+    distances, indices = index.search(
+        question_embedding,
+        top_k,
+    )
 
     retrieved_chunks = []
 
-    for hit in results:
+    for idx in indices[0]:
 
         retrieved_chunks.append(
-            hit.payload["text"]
+            chunks[idx]
         )
 
     return retrieved_chunks
@@ -209,25 +152,24 @@ def ask_groq(
 
     from groq import Groq
 
-    groq_client = Groq(
+    client = Groq(
         api_key=GROQ_API_KEY
     )
 
-    context = "\n\n".join(context_chunks)
+    context = "\n\n".join(
+        context_chunks
+    )
 
-    response = groq_client.chat.completions.create(
+    response = client.chat.completions.create(
 
-        # UPDATED MODEL
-        model="llama-3.1-8b-instant",
+        model="llama3-8b-8192",
 
         messages=[
 
             {
                 "role": "system",
                 "content":
-                "Answer ONLY from the provided context. "
-                "If answer is not available, say "
-                "'Answer not found in document.'"
+                "Answer ONLY using provided context."
             },
 
             {
@@ -242,7 +184,7 @@ Question:
 
 Answer:
 """
-            },
+            }
         ],
 
         temperature=0.2,
